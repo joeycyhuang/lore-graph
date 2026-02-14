@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Warhammer 40k Character Relationships</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+  }
+  svg { display: block; width: 100vw; height: 100vh; }
+  .link {
+    stroke: #555;
+    stroke-opacity: 0.6;
+    stroke-width: 1.5px;
+  }
+  .link:hover {
+    stroke-opacity: 1;
+    stroke-width: 3px;
+    cursor: pointer;
+  }
+  .node circle {
+    stroke: #fff;
+    stroke-width: 1.5px;
+    cursor: grab;
+  }
+  .node circle:active { cursor: grabbing; }
+  .node text {
+    font-size: 11px;
+    fill: #ccc;
+    pointer-events: none;
+    text-shadow: 0 0 4px #1a1a2e, 0 0 4px #1a1a2e;
+  }
+  .tooltip {
+    position: fixed;
+    background: rgba(16, 16, 32, 0.95);
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    max-width: 300px;
+    pointer-events: none;
+    z-index: 100;
+    line-height: 1.5;
+    display: none;
+  }
+  .tooltip .tt-name {
+    font-weight: bold;
+    font-size: 15px;
+    margin-bottom: 4px;
+  }
+  .tooltip .tt-label {
+    color: #888;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .tooltip .tt-value { color: #ddd; }
+  .legend {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    background: rgba(16, 16, 32, 0.9);
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 12px;
+    z-index: 50;
+  }
+  .legend-title {
+    font-weight: bold;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: #aaa;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+  .error-msg {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    font-size: 18px;
+    color: #e74c3c;
+  }
+  h1 {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    font-size: 18px;
+    color: #c9aa71;
+    z-index: 50;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<h1>Warhammer 40k — Character Relationships</h1>
+<div class="tooltip" id="tooltip"></div>
+<svg id="graph"></svg>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const FACTION_COLORS = [
+  "#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231",
+  "#911eb4", "#42d4f4", "#f032e6", "#bfef45", "#fabed4",
+  "#469990", "#dcbeff", "#9A6324", "#fffac8", "#800000",
+  "#aaffc3", "#808000", "#ffd8b1", "#000075", "#a9a9a9"
+];
+
+const width = window.innerWidth;
+const height = window.innerHeight;
+const tooltip = d3.select("#tooltip");
+
+fetch("data.json")
+  .then(r => {
+    if (!r.ok) throw new Error("Could not load data.json");
+    return r.json();
+  })
+  .then(data => render(data))
+  .catch(err => {
+    document.getElementById("graph").remove();
+    const div = document.createElement("div");
+    div.className = "error-msg";
+    div.innerHTML = `<p>${err.message}</p><p style="margin-top:8px;font-size:14px;color:#888">Run <code>uv run main.py "your-book.pdf"</code> first to generate data.json</p>`;
+    document.body.appendChild(div);
+  });
+
+function render(data) {
+  const { nodes, edges } = data;
+
+  // Build faction color map
+  const factions = [...new Set(nodes.map(n => n.faction))];
+  const factionColor = {};
+  factions.forEach((f, i) => { factionColor[f] = FACTION_COLORS[i % FACTION_COLORS.length]; });
+
+  // Legend
+  const legend = document.createElement("div");
+  legend.className = "legend";
+  legend.innerHTML = `<div class="legend-title">Factions</div>` +
+    factions.map(f =>
+      `<div class="legend-item"><span class="legend-swatch" style="background:${factionColor[f]}"></span>${f}</div>`
+    ).join("");
+  document.body.appendChild(legend);
+
+  const svg = d3.select("#graph")
+    .attr("viewBox", [0, 0, width, height]);
+
+  // Zoom container
+  const g = svg.append("g");
+
+  const zoom = d3.zoom()
+    .scaleExtent([0.2, 5])
+    .on("zoom", (event) => g.attr("transform", event.transform));
+  svg.call(zoom);
+
+  // Force simulation
+  const simulation = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(edges).id(d => d.id).distance(120))
+    .force("charge", d3.forceManyBody().strength(-300))
+    .force("center", d3.forceCenter(width / 2, height / 2))
+    .force("collision", d3.forceCollide().radius(30));
+
+  // Edges
+  const link = g.append("g")
+    .selectAll("line")
+    .data(edges)
+    .join("line")
+    .attr("class", "link")
+    .on("mouseover", (event, d) => {
+      const sourceName = typeof d.source === "object" ? d.source.name : d.source;
+      const targetName = typeof d.target === "object" ? d.target.name : d.target;
+      tooltip.style("display", "block").html(
+        `<div class="tt-name">${sourceName} &harr; ${targetName}</div>` +
+        `<div><span class="tt-label">Type: </span><span class="tt-value">${d.type}</span></div>` +
+        `<div><span class="tt-label">Details: </span><span class="tt-value">${d.description}</span></div>`
+      );
+      positionTooltip(event);
+    })
+    .on("mousemove", positionTooltip)
+    .on("mouseout", () => tooltip.style("display", "none"));
+
+  // Invisible wider lines for easier edge hovering
+  g.append("g")
+    .selectAll("line")
+    .data(edges)
+    .join("line")
+    .attr("stroke", "transparent")
+    .attr("stroke-width", 12)
+    .on("mouseover", (event, d) => {
+      const sourceName = typeof d.source === "object" ? d.source.name : d.source;
+      const targetName = typeof d.target === "object" ? d.target.name : d.target;
+      tooltip.style("display", "block").html(
+        `<div class="tt-name">${sourceName} &harr; ${targetName}</div>` +
+        `<div><span class="tt-label">Type: </span><span class="tt-value">${d.type}</span></div>` +
+        `<div><span class="tt-label">Details: </span><span class="tt-value">${d.description}</span></div>`
+      );
+      positionTooltip(event);
+    })
+    .on("mousemove", positionTooltip)
+    .on("mouseout", () => tooltip.style("display", "none"));
+
+  // Nodes
+  const node = g.append("g")
+    .selectAll("g")
+    .data(nodes)
+    .join("g")
+    .attr("class", "node")
+    .call(drag(simulation));
+
+  node.append("circle")
+    .attr("r", 8)
+    .attr("fill", d => factionColor[d.faction] || "#999")
+    .on("mouseover", (event, d) => {
+      tooltip.style("display", "block").html(
+        `<div class="tt-name">${d.name}</div>` +
+        `<div><span class="tt-label">Faction: </span><span class="tt-value">${d.faction}</span></div>` +
+        `<div><span class="tt-label">Role: </span><span class="tt-value">${d.role}</span></div>` +
+        `<div style="margin-top:4px"><span class="tt-value">${d.description}</span></div>`
+      );
+      positionTooltip(event);
+    })
+    .on("mousemove", positionTooltip)
+    .on("mouseout", () => tooltip.style("display", "none"));
+
+  // Labels
+  node.append("text")
+    .attr("dx", 12)
+    .attr("dy", 4)
+    .text(d => d.name);
+
+  // Tick
+  simulation.on("tick", () => {
+    link
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+
+    // Also update invisible hover lines
+    g.selectAll("line[stroke='transparent']")
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+
+    node.attr("transform", d => `translate(${d.x},${d.y})`);
+  });
+
+  function positionTooltip(event) {
+    const pad = 12;
+    let x = event.clientX + pad;
+    let y = event.clientY + pad;
+    const ttNode = document.getElementById("tooltip");
+    const rect = ttNode.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth) x = event.clientX - rect.width - pad;
+    if (y + rect.height > window.innerHeight) y = event.clientY - rect.height - pad;
+    tooltip.style("left", x + "px").style("top", y + "px");
+  }
+
+  function drag(simulation) {
+    return d3.drag()
+      .on("start", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      })
+      .on("drag", (event, d) => {
+        d.fx = event.x;
+        d.fy = event.y;
+      })
+      .on("end", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      });
+  }
+}
+</script>
+</body>
+</html>

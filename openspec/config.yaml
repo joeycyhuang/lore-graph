@@ -1,0 +1,9 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python 3.14 (uv package manager), D3.js (d3-force) for visualization
+  Project: Extract characters from Warhammer 40k story PDFs, analyze relationships, visualize as interactive force-directed graph
+  Backend: Python script using Google's LangExtract library for character/relationship extraction from PDFs
+  Frontend: Single local index.html with D3-force graph visualization
+  Data flow: Python extracts characters/relationships → JSON → index.html reads JSON → D3 renders graph
+  Conventions: Keep it simple, single-file where possible, local development only
