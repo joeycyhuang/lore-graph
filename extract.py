@@ -53,6 +53,7 @@ CHARACTER_PROMPT = textwrap.dedent("""\
     first appears. Provide attributes for faction, role, and a brief description.
     Only extract characters who are named individuals, not unnamed soldiers or
     generic groups. List characters in order of appearance.
+    Return ONLY a valid JSON object. All values must be strings, numbers, or booleans. Never return null.
 """)
 
 CHARACTER_EXAMPLES = [
@@ -94,6 +95,7 @@ RELATIONSHIP_PROMPT = textwrap.dedent("""\
     enmity, subordinate). Provide a brief description of the relationship.
     List relationships in order of appearance. Only include relationships
     between named individuals.
+    Return ONLY a valid JSON object. All values must be strings, numbers, or booleans. Never return null.
 """)
 
 RELATIONSHIP_EXAMPLES = [
@@ -128,6 +130,9 @@ RELATIONSHIP_EXAMPLES = [
     )
 ]
 
+MAX_CHAR_BUFFER = 50000
+MAX_RETRIES = 2
+CONTEXT_SIZE = 36768
 
 def _build_config(model_id: str, model_url: str | None) -> dict:
     """Build kwargs for lx.extract using local Ollama.
@@ -138,13 +143,58 @@ def _build_config(model_id: str, model_url: str | None) -> dict:
     return {
         "model_id": model_id,
         "model_url": model_url,
-        "fence_output": False,
+        "fence_output": True,
         "use_schema_constraints": False,
+        "language_model_params": {"timeout": 600, "num_ctx": CONTEXT_SIZE},
         "resolver_params": {
-            "format_handler": _LENIENT_HANDLER,
             "suppress_parse_errors": True,
+            "enable_fuzzy_alignment": False,
         },
     }
+
+
+
+
+def _chunk_text(text: str, chunk_size: int = MAX_CHAR_BUFFER) -> list[str]:
+    """Split text into chunks, breaking at whitespace boundaries."""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        if end < len(text):
+            break_at = text.rfind(" ", start, end)
+            if break_at > start:
+                end = break_at
+        chunks.append(text[start:end])
+        start = end
+    return chunks
+
+
+def _extract_chunk(chunk, prompt, examples, config, debug=False):
+    """Extract from a single chunk with retries."""
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            result = lx.extract(
+                text_or_documents=chunk,
+                prompt_description=prompt,
+                examples=examples,
+                extraction_passes=1,
+                max_char_buffer=MAX_CHAR_BUFFER + 1,
+                max_workers=1,
+                batch_length=1,
+                **config,
+            )
+            if debug and result.extractions:
+                print(f"    [debug] Got {len(result.extractions)} extractions, classes: {set(e.extraction_class for e in result.extractions)}")
+            elif debug:
+                print(f"    [debug] Got 0 extractions from result")
+            return result
+        except Exception as e:
+            if debug:
+                print(f"    [debug] Attempt {attempt+1} failed: {e}")
+            if attempt == MAX_RETRIES:
+                return None
+    return None
 
 
 def extract_characters(
@@ -153,27 +203,27 @@ def extract_characters(
     model_url: str | None = "http://localhost:11434",
 ) -> list[dict]:
     """Extract characters from text using LangExtract with local Ollama."""
-    result = lx.extract(
-        text_or_documents=text,
-        prompt_description=CHARACTER_PROMPT,
-        examples=CHARACTER_EXAMPLES,
-        extraction_passes=1,
-        max_char_buffer=100000,  # Larger chunks = fewer LLM calls
-        max_workers=1,            # Sequential for local Ollama (no parallel overhead)
-        batch_length=1,           # Process one chunk at a time
-        **_build_config(model_id, model_url),
-    )
-
+    chunks = _chunk_text(text)
+    config = _build_config(model_id, model_url)
     characters = []
-    for extraction in result.extractions:
-        if extraction.extraction_class == "character":
-            attrs = extraction.attributes or {}
-            characters.append({
-                "name": extraction.extraction_text,
-                "faction": attrs.get("faction", "Unknown"),
-                "role": attrs.get("role", "Unknown"),
-                "description": attrs.get("description", ""),
-            })
+    skipped = 0
+
+    for i, chunk in enumerate(chunks):
+        result = _extract_chunk(chunk, CHARACTER_PROMPT, CHARACTER_EXAMPLES, config, debug=True)
+        if result is None:
+            skipped += 1
+        else:
+            for extraction in result.extractions:
+                if extraction.extraction_class == "character":
+                    attrs = extraction.attributes or {}
+                    characters.append({
+                        "name": extraction.extraction_text,
+                        "faction": attrs.get("faction", "Unknown"),
+                        "role": attrs.get("role", "Unknown"),
+                        "description": attrs.get("description", ""),
+                    })
+        print(f"  Chunk {i+1}/{len(chunks)}: {len(characters)} characters ({skipped} skipped)")
+
     if not characters:
         print("Warning: No characters found in text.", file=sys.stderr)
     return characters
@@ -185,27 +235,27 @@ def extract_relationships(
     model_url: str | None = "http://localhost:11434",
 ) -> list[dict]:
     """Extract relationships between characters from text using LangExtract with local Ollama."""
-    result = lx.extract(
-        text_or_documents=text,
-        prompt_description=RELATIONSHIP_PROMPT,
-        examples=RELATIONSHIP_EXAMPLES,
-        extraction_passes=1,
-        max_char_buffer=100000,  # Larger chunks = fewer LLM calls
-        max_workers=1,            # Sequential for local Ollama (no parallel overhead)
-        batch_length=1,           # Process one chunk at a time
-        **_build_config(model_id, model_url),
-    )
-
+    chunks = _chunk_text(text)
+    config = _build_config(model_id, model_url)
     relationships = []
-    for extraction in result.extractions:
-        if extraction.extraction_class == "relationship":
-            attrs = extraction.attributes or {}
-            relationships.append({
-                "source_character": attrs.get("source_character", ""),
-                "target_character": attrs.get("target_character", ""),
-                "type": attrs.get("type", "unknown"),
-                "description": attrs.get("description", ""),
-            })
+    skipped = 0
+
+    for i, chunk in enumerate(chunks):
+        result = _extract_chunk(chunk, RELATIONSHIP_PROMPT, RELATIONSHIP_EXAMPLES, config, debug=True)
+        if result is None:
+            skipped += 1
+        else:
+            for extraction in result.extractions:
+                if extraction.extraction_class == "relationship":
+                    attrs = extraction.attributes or {}
+                    relationships.append({
+                        "source_character": attrs.get("source_character", ""),
+                        "target_character": attrs.get("target_character", ""),
+                        "type": attrs.get("type", "unknown"),
+                        "description": attrs.get("description", ""),
+                    })
+        print(f"  Chunk {i+1}/{len(chunks)}: {len(relationships)} relationships ({skipped} skipped)")
+
     return relationships
 
 
@@ -241,10 +291,10 @@ def deduplicate_characters(characters: list[dict]) -> list[dict]:
         descriptions = [c["description"] for c in group if c["description"]]
         canonical["description"] = descriptions[0] if descriptions else ""
         # Use most specific faction/role (longest non-Unknown)
-        factions = [c["faction"] for c in group if c["faction"] != "Unknown"]
+        factions = [c["faction"] for c in group if c["faction"] and c["faction"] != "Unknown"]
         if factions:
             canonical["faction"] = max(factions, key=len)
-        roles = [c["role"] for c in group if c["role"] != "Unknown"]
+        roles = [c["role"] for c in group if c["role"] and c["role"] != "Unknown"]
         if roles:
             canonical["role"] = max(roles, key=len)
         deduped.append(canonical)

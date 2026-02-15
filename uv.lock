@@ -1054,6 +1054,7 @@ dependencies = [
     { name = "langextract" },
     { name = "openai" },
     { name = "pymupdf" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
@@ -1061,6 +1062,7 @@ requires-dist = [
     { name = "langextract", specifier = ">=1.1.1" },
     { name = "openai", specifier = ">=2.18.0" },
     { name = "pymupdf", specifier = ">=1.26.7" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
 ]
 
 [[package]]
