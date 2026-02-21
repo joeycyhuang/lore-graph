@@ -127,7 +127,7 @@ const width = window.innerWidth;
 const height = window.innerHeight;
 const tooltip = d3.select("#tooltip");
 
-fetch("data.json")
+fetch("data/data.json")
   .then(r => {
     if (!r.ok) throw new Error("Could not load data.json");
     return r.json();

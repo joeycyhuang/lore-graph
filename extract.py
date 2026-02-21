@@ -214,13 +214,13 @@ def extract_characters(
             skipped += 1
         else:
             for extraction in result.extractions:
-                if extraction.extraction_class == "character":
+                if extraction.extraction_class == "character" and extraction.extraction_text.strip():
                     attrs = extraction.attributes or {}
                     characters.append({
-                        "name": extraction.extraction_text,
-                        "faction": attrs.get("faction", "Unknown"),
-                        "role": attrs.get("role", "Unknown"),
-                        "description": attrs.get("description", ""),
+                        "name": extraction.extraction_text.strip(),
+                        "faction": attrs.get("faction", "Unknown") or "Unknown",
+                        "role": attrs.get("role", "Unknown") or "Unknown",
+                        "description": attrs.get("description", "") or "",
                     })
         print(f"  Chunk {i+1}/{len(chunks)}: {len(characters)} characters ({skipped} skipped)")
 
@@ -248,12 +248,15 @@ def extract_relationships(
             for extraction in result.extractions:
                 if extraction.extraction_class == "relationship":
                     attrs = extraction.attributes or {}
-                    relationships.append({
-                        "source_character": attrs.get("source_character", ""),
-                        "target_character": attrs.get("target_character", ""),
-                        "type": attrs.get("type", "unknown"),
-                        "description": attrs.get("description", ""),
-                    })
+                    source = (attrs.get("source_character") or "").strip()
+                    target = (attrs.get("target_character") or "").strip()
+                    if source and target:
+                        relationships.append({
+                            "source_character": source,
+                            "target_character": target,
+                            "type": attrs.get("type", "unknown") or "unknown",
+                            "description": attrs.get("description", "") or "",
+                        })
         print(f"  Chunk {i+1}/{len(chunks)}: {len(relationships)} relationships ({skipped} skipped)")
 
     return relationships
