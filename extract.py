@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import sys
 import textwrap
 
@@ -130,30 +131,38 @@ RELATIONSHIP_EXAMPLES = [
     )
 ]
 
-MAX_CHAR_BUFFER = 50000
+MAX_CHAR_BUFFER = 1000
 MAX_RETRIES = 2
 CONTEXT_SIZE = 36768
 
-def _build_config(model_id: str, model_url: str | None) -> dict:
-    """Build kwargs for lx.extract using local Ollama.
-
-    Configures LangExtract to use local Ollama models with simplified
-    settings optimized for local inference.
-    """
-    return {
+def build_provider_config(provider: str, model_id: str, provider_url: str | None = None) -> dict:
+    """Build kwargs for lx.extract() based on the selected provider."""
+    base = {
         "model_id": model_id,
-        "model_url": model_url,
         "fence_output": True,
         "use_schema_constraints": False,
-        "language_model_params": {"timeout": 600, "num_ctx": CONTEXT_SIZE},
         "resolver_params": {
             "suppress_parse_errors": True,
             "enable_fuzzy_alignment": False,
         },
     }
 
+    match provider:
+        case "ollama":
+            base["model_url"] = "http://localhost:11434"
+            base["language_model_params"] = {"timeout": 600, "num_ctx": CONTEXT_SIZE}
+        case "ollama-cloud":
+            base["model_url"] = provider_url or os.getenv("OLLAMA_CLOUD_URL", "https://ollama.com")
+            lm_params = {"timeout": 600}
+            api_key = os.getenv("OLLAMA_API_KEY")
+            if api_key:
+                lm_params["api_key"] = api_key
+            base["language_model_params"] = lm_params
+        case "gemini":
+            base["api_key"] = os.getenv("GEMINI_API_KEY")
+            base["language_model_params"] = {"timeout": 600}
 
-
+    return base
 
 def _chunk_text(text: str, chunk_size: int = MAX_CHAR_BUFFER) -> list[str]:
     """Split text into chunks, breaking at whitespace boundaries."""
@@ -168,7 +177,6 @@ def _chunk_text(text: str, chunk_size: int = MAX_CHAR_BUFFER) -> list[str]:
         chunks.append(text[start:end])
         start = end
     return chunks
-
 
 def _extract_chunk(chunk, prompt, examples, config, debug=False):
     """Extract from a single chunk with retries."""
@@ -196,15 +204,9 @@ def _extract_chunk(chunk, prompt, examples, config, debug=False):
                 return None
     return None
 
-
-def extract_characters(
-    text: str,
-    model_id: str = "llama3.1:latest",
-    model_url: str | None = "http://localhost:11434",
-) -> list[dict]:
-    """Extract characters from text using LangExtract with local Ollama."""
+def extract_characters(text: str, config: dict) -> list[dict]:
+    """Extract characters from text using LangExtract."""
     chunks = _chunk_text(text)
-    config = _build_config(model_id, model_url)
     characters = []
     skipped = 0
 
@@ -228,15 +230,9 @@ def extract_characters(
         print("Warning: No characters found in text.", file=sys.stderr)
     return characters
 
-
-def extract_relationships(
-    text: str,
-    model_id: str = "llama3.1:latest",
-    model_url: str | None = "http://localhost:11434",
-) -> list[dict]:
-    """Extract relationships between characters from text using LangExtract with local Ollama."""
+def extract_relationships(text: str, config: dict) -> list[dict]:
+    """Extract relationships between characters from text using LangExtract."""
     chunks = _chunk_text(text)
-    config = _build_config(model_id, model_url)
     relationships = []
     skipped = 0
 
@@ -260,7 +256,6 @@ def extract_relationships(
         print(f"  Chunk {i+1}/{len(chunks)}: {len(relationships)} relationships ({skipped} skipped)")
 
     return relationships
-
 
 def deduplicate_characters(characters: list[dict]) -> list[dict]:
     """Merge characters that refer to the same person under different name variants.
@@ -303,7 +298,6 @@ def deduplicate_characters(characters: list[dict]) -> list[dict]:
         deduped.append(canonical)
 
     return deduped
-
 
 def build_graph_data(characters: list[dict], relationships: list[dict]) -> dict:
     """Assemble characters and relationships into D3-compatible graph JSON."""

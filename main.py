@@ -13,6 +13,7 @@ from extract import (
     extract_relationships,
     deduplicate_characters,
     build_graph_data,
+    build_provider_config,
     write_graph_json,
 )
 
@@ -39,19 +40,37 @@ def main():
         "--output", "-o", default="data/data.json", help="Output JSON path (default: data/data.json)"
     )
     parser.add_argument(
-        "--model", "-m", default=None, help="Model ID (default: OLLAMA_MODEL env var or llama3.1:latest)"
+        "--model", "-m", default=None, help="Model ID (default depends on provider)"
     )
     parser.add_argument(
-        "--model-url", default=None, help="Custom model endpoint URL (default: OLLAMA_BASE_URL env var or http://localhost:11434)"
+        "--provider", default="ollama", choices=["ollama", "ollama-cloud", "gemini"],
+        help="Model provider (default: ollama)"
+    )
+    parser.add_argument(
+        "--provider-url", default=None, help="Override provider endpoint URL (only for ollama-cloud)"
     )
     parser.add_argument(
         "--demo", action="store_true", help="Demo mode: only process first ~10K chars per book"
     )
     args = parser.parse_args()
 
-    model_id = args.model or os.getenv("OLLAMA_MODEL", "llama3.1:latest")
-    model_url = args.model_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    model_kwargs = {"model_id": model_id, "model_url": model_url}
+    # Provider-specific default models
+    default_models = {
+        "ollama": "llama3.1:latest",
+        "ollama-cloud": "llama3.1:latest",
+        "gemini": "gemini-2.0-flash",
+    }
+    model_id = args.model or os.getenv("OLLAMA_MODEL", default_models[args.provider])
+
+    # Validate required env vars per provider
+    if args.provider == "ollama-cloud" and not os.getenv("OLLAMA_API_KEY"):
+        print("Error: OLLAMA_API_KEY env var is required for ollama-cloud provider", file=sys.stderr)
+        sys.exit(1)
+    if args.provider == "gemini" and not os.getenv("GEMINI_API_KEY"):
+        print("Error: GEMINI_API_KEY env var is required for gemini provider", file=sys.stderr)
+        sys.exit(1)
+
+    config = build_provider_config(args.provider, model_id, provider_url=args.provider_url)
 
     pdfs = _resolve_pdfs(args.pdf)
     all_characters = []
@@ -68,13 +87,13 @@ def main():
         else:
             print(f"  Extracted {len(text)} characters of text")
 
-        print(f"  Extracting characters using {model_id}...")
-        characters = extract_characters(text, **model_kwargs)
+        print(f"  Extracting characters using {args.provider}/{model_id}...")
+        characters = extract_characters(text, config)
         print(f"  Found {len(characters)} characters")
         all_characters.extend(characters)
 
-        print(f"  Extracting relationships using {model_id}...")
-        relationships = extract_relationships(text, **model_kwargs)
+        print(f"  Extracting relationships using {args.provider}/{model_id}...")
+        relationships = extract_relationships(text, config)
         print(f"  Found {len(relationships)} relationships")
         all_relationships.extend(relationships)
 
