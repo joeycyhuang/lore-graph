@@ -49,21 +49,22 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 
 
 CHARACTER_PROMPT = textwrap.dedent("""\
-    Extract all named characters from this Warhammer 40,000 novel text.
-    For each character, identify them by the exact text of their name as it
-    first appears. Provide attributes for faction, role, and a brief description.
-    Only extract characters who are named individuals, not unnamed soldiers or
-    generic groups. List characters in order of appearance.
+    Extract named characters from this Warhammer 40,000 novel text.
+    Use the exact name text as it first appears. List characters in order of appearance.
+    Do NOT extract planets, locations, ships, weapons, or unnamed groups.
+    For example, Terra, Cadia, Macragge, Ullanor are planets/places, not characters.
+    Use canonical faction names consistently (e.g. "Luna Wolves" not "the Wolves",
+    "Ultramarines" not "the XIII Legion").
     Return ONLY a valid JSON object. All values must be strings, numbers, or booleans. Never return null.
 """)
 
 CHARACTER_EXAMPLES = [
     lx.data.ExampleData(
         text=(
-            "Garviel Loken stood at the embarkation deck, watching the stars. "
-            "As Captain of the Tenth Company, he commanded respect among the "
-            "Luna Wolves. Beside him, First Captain Ezekyle Abaddon growled "
-            "his impatience."
+            "The fleet broke from the warp above Ullanor. Garviel Loken stood "
+            "at the embarkation deck as Captain of the Luna Wolves Tenth Company. "
+            "Beside him, First Captain Ezekyle Abaddon growled his impatience. "
+            "Far below, the greenskin hordes of Urlakk Urg waited."
         ),
         extractions=[
             lx.data.Extraction(
@@ -72,7 +73,7 @@ CHARACTER_EXAMPLES = [
                 attributes={
                     "faction": "Luna Wolves",
                     "role": "Captain, Tenth Company",
-                    "description": "A thoughtful and principled Space Marine captain",
+                    "description": "A thoughtful Space Marine captain",
                 },
             ),
             lx.data.Extraction(
@@ -84,18 +85,25 @@ CHARACTER_EXAMPLES = [
                     "description": "An aggressive and ambitious warrior",
                 },
             ),
+            lx.data.Extraction(
+                extraction_class="character",
+                extraction_text="Urlakk Urg",
+                attributes={
+                    "faction": "Orks",
+                    "role": "Warlord",
+                    "description": "Greenskin warlord on Ullanor",
+                },
+            ),
         ],
     )
 ]
 
 RELATIONSHIP_PROMPT = textwrap.dedent("""\
-    Extract all significant relationships between named characters in this
-    Warhammer 40,000 novel text. For each relationship, use the exact names
-    of the two characters involved. Categorize the relationship type (e.g.,
-    command, brotherhood, rivalry, mentorship, alliance, betrayal, friendship,
-    enmity, subordinate). Provide a brief description of the relationship.
-    List relationships in order of appearance. Only include relationships
-    between named individuals.
+    Extract significant relationships between named characters in this
+    Warhammer 40,000 novel text. Use exact character names for source and target.
+    Only include relationships between named individuals, not places or groups.
+    Do not extract duplicate relationships. If two characters have one relationship,
+    extract it once with the most specific type.
     Return ONLY a valid JSON object. All values must be strings, numbers, or booleans. Never return null.
 """)
 
@@ -114,7 +122,7 @@ RELATIONSHIP_EXAMPLES = [
                     "source_character": "Loken",
                     "target_character": "Abaddon",
                     "type": "subordinate",
-                    "description": "Loken serves under Abaddon in speartip assaults, though they often clash on matters of honour",
+                    "description": "Serves under Abaddon but they clash on matters of honour",
                 },
             ),
             lx.data.Extraction(
@@ -124,14 +132,14 @@ RELATIONSHIP_EXAMPLES = [
                     "source_character": "Horus",
                     "target_character": "Loken",
                     "type": "mentorship",
-                    "description": "Horus values Loken as a voice of reason among the Mournival",
+                    "description": "Horus values Loken as a voice of reason in the Mournival",
                 },
             ),
         ],
     )
 ]
 
-MAX_CHAR_BUFFER = 1000
+MAX_CHAR_BUFFER = 10000
 MAX_RETRIES = 2
 CONTEXT_SIZE = 36768
 
@@ -152,8 +160,8 @@ def build_provider_config(provider: str, model_id: str, provider_url: str | None
             base["model_url"] = "http://localhost:11434"
             base["language_model_params"] = {"timeout": 600, "num_ctx": CONTEXT_SIZE}
         case "ollama-cloud":
-            base["model_url"] = provider_url or os.getenv("OLLAMA_CLOUD_URL", "https://ollama.com")
-            lm_params = {"timeout": 600}
+            base["model_url"] = provider_url or os.getenv("OLLAMA_CLOUD_URL", "http://localhost:11434")
+            lm_params = {"timeout": 600, "num_ctx": CONTEXT_SIZE}
             api_key = os.getenv("OLLAMA_API_KEY")
             if api_key:
                 lm_params["api_key"] = api_key
