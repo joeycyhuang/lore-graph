@@ -187,7 +187,7 @@ def _chunk_text(text: str, chunk_size: int = MAX_CHAR_BUFFER) -> list[str]:
     return chunks
 
 def _extract_chunk(chunk, prompt, examples, config, debug=False):
-    """Extract from a single chunk with retries."""
+    """Extract from a single chunk with retries, trimming on context overflow."""
     for attempt in range(MAX_RETRIES + 1):
         try:
             result = lx.extract(
@@ -195,9 +195,9 @@ def _extract_chunk(chunk, prompt, examples, config, debug=False):
                 prompt_description=prompt,
                 examples=examples,
                 extraction_passes=1,
-                max_char_buffer=MAX_CHAR_BUFFER + 1,
-                max_workers=1,
-                batch_length=1,
+                max_char_buffer=len(chunk) + 1,
+                max_workers=2,
+                batch_length=2,
                 **config,
             )
             if debug and result.extractions:
@@ -208,14 +208,24 @@ def _extract_chunk(chunk, prompt, examples, config, debug=False):
         except Exception as e:
             if debug:
                 print(f"    [debug] Attempt {attempt+1} failed: {e}")
+            if "exceeded max context length" in str(e) or "prompt too long" in str(e):
+                # Trim 10% of the chunk to fit within context window
+                trim = max(100, len(chunk) // 10)
+                chunk = chunk[:-trim].rstrip()
+                if debug:
+                    print(f"    [debug] Trimmed chunk to {len(chunk)} chars")
             if attempt == MAX_RETRIES:
                 return None
     return None
 
-def extract_characters(text: str, config: dict) -> list[dict]:
-    """Extract characters from text using LangExtract."""
+def extract_characters(text: str, config: dict) -> tuple[list[dict], list]:
+    """Extract characters from text using LangExtract.
+
+    Returns a tuple of (characters, annotated_documents).
+    """
     chunks = _chunk_text(text)
     characters = []
+    annotated_docs = []
     skipped = 0
 
     for i, chunk in enumerate(chunks):
@@ -223,6 +233,7 @@ def extract_characters(text: str, config: dict) -> list[dict]:
         if result is None:
             skipped += 1
         else:
+            annotated_docs.append(result)
             for extraction in result.extractions:
                 if extraction.extraction_class == "character" and extraction.extraction_text.strip():
                     attrs = extraction.attributes or {}
@@ -236,12 +247,16 @@ def extract_characters(text: str, config: dict) -> list[dict]:
 
     if not characters:
         print("Warning: No characters found in text.", file=sys.stderr)
-    return characters
+    return characters, annotated_docs
 
-def extract_relationships(text: str, config: dict) -> list[dict]:
-    """Extract relationships between characters from text using LangExtract."""
+def extract_relationships(text: str, config: dict) -> tuple[list[dict], list]:
+    """Extract relationships between characters from text using LangExtract.
+
+    Returns a tuple of (relationships, annotated_documents).
+    """
     chunks = _chunk_text(text)
     relationships = []
+    annotated_docs = []
     skipped = 0
 
     for i, chunk in enumerate(chunks):
@@ -249,6 +264,7 @@ def extract_relationships(text: str, config: dict) -> list[dict]:
         if result is None:
             skipped += 1
         else:
+            annotated_docs.append(result)
             for extraction in result.extractions:
                 if extraction.extraction_class == "relationship":
                     attrs = extraction.attributes or {}
@@ -263,7 +279,7 @@ def extract_relationships(text: str, config: dict) -> list[dict]:
                         })
         print(f"  Chunk {i+1}/{len(chunks)}: {len(relationships)} relationships ({skipped} skipped)")
 
-    return relationships
+    return relationships, annotated_docs
 
 def deduplicate_characters(characters: list[dict]) -> list[dict]:
     """Merge characters that refer to the same person under different name variants.
@@ -363,3 +379,23 @@ def write_graph_json(data: dict, output_path: str) -> None:
     with open(output_path, "w") as f:
         json.dump(data, f, indent=2)
     print(f"Wrote {len(data['nodes'])} characters and {len(data['edges'])} relationships to {output_path}")
+
+
+def save_visualization(annotated_docs: list, output_dir: str = "data") -> None:
+    """Save annotated documents as JSONL and generate an HTML visualization."""
+    jsonl_name = "extraction_results.jsonl"
+    viz_path = os.path.join(output_dir, "visualization.html")
+
+    lx.io.save_annotated_documents(
+        annotated_docs,
+        output_name=jsonl_name,
+        output_dir=output_dir,
+    )
+
+    jsonl_path = os.path.join(output_dir, jsonl_name)
+    html_content = lx.visualize(jsonl_path)
+    if hasattr(html_content, "data"):
+        html_content = html_content.data
+    with open(viz_path, "w") as f:
+        f.write(html_content)
+    print(f"Wrote visualization to {viz_path}")

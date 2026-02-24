@@ -1,5 +1,3 @@
-## ADDED Requirements
-
 ### Requirement: Extract text from PDF
 The system SHALL accept a PDF file path as input and extract all readable text content from it using PyMuPDF.
 

@@ -1,5 +1,3 @@
-## ADDED Requirements
-
 ### Requirement: CLI accepts a directory of PDFs
 The CLI SHALL accept a directory path as the positional `pdf` argument. When a directory is provided, it SHALL find all `*.pdf` files within it and process each one.
 

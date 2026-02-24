@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Warhammer 40k Character Relationships</title>
+<title>Lore-Graph</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -107,10 +107,27 @@
     z-index: 50;
     font-weight: 600;
   }
+  .viz-link {
+    position: fixed;
+    top: 46px;
+    left: 16px;
+    z-index: 50;
+    font-size: 13px;
+  }
+  .viz-link a {
+    color: #6ba3d6;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+  .viz-link a:hover {
+    border-bottom-color: #6ba3d6;
+  }
 </style>
 </head>
 <body>
 <h1>Warhammer 40k — Character Relationships</h1>
+<div class="viz-link"><a href="data/visualization.html" target="_blank">View Extraction Details</a></div>
 <div class="tooltip" id="tooltip"></div>
 <svg id="graph"></svg>
 

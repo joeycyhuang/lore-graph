@@ -1,5 +1,3 @@
-## ADDED Requirements
-
 ### Requirement: Load and render force-directed graph
 The `index.html` SHALL load `data.json` and render all character nodes and relationship edges as a force-directed graph using D3-force.
 

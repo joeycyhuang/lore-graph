@@ -15,6 +15,7 @@ from extract import (
     build_graph_data,
     build_provider_config,
     write_graph_json,
+    save_visualization,
 )
 
 
@@ -52,6 +53,9 @@ def main():
     parser.add_argument(
         "--demo", action="store_true", help="Demo mode: only process first ~10K chars per book"
     )
+    parser.add_argument(
+        "--no-viz", action="store_true", help="Skip generating extraction visualization"
+    )
     args = parser.parse_args()
 
     # Provider-specific default models
@@ -75,6 +79,7 @@ def main():
     pdfs = _resolve_pdfs(args.pdf)
     all_characters = []
     all_relationships = []
+    all_annotated_docs = []
 
     for i, pdf_path in enumerate(pdfs, 1):
         book_name = os.path.basename(pdf_path)
@@ -88,14 +93,16 @@ def main():
             print(f"  Extracted {len(text)} characters of text")
 
         print(f"  Extracting characters using {args.provider}/{model_id}...")
-        characters = extract_characters(text, config)
+        characters, char_docs = extract_characters(text, config)
         print(f"  Found {len(characters)} characters")
         all_characters.extend(characters)
+        all_annotated_docs.extend(char_docs)
 
         print(f"  Extracting relationships using {args.provider}/{model_id}...")
-        relationships = extract_relationships(text, config)
+        relationships, rel_docs = extract_relationships(text, config)
         print(f"  Found {len(relationships)} relationships")
         all_relationships.extend(relationships)
+        all_annotated_docs.extend(rel_docs)
 
     print(f"\nDeduplicating {len(all_characters)} characters across {len(pdfs)} book(s)...")
     all_characters = deduplicate_characters(all_characters)
@@ -104,7 +111,11 @@ def main():
     graph = build_graph_data(all_characters, all_relationships)
     write_graph_json(graph, args.output)
 
-    print("Done! Open index.html to view the graph.")
+    if not args.no_viz and all_annotated_docs:
+        output_dir = os.path.dirname(args.output) or "data"
+        save_visualization(all_annotated_docs, output_dir=output_dir)
+
+    print("Done! Open index.html to view the graph and data/visualization.html for extraction details.")
 
 
 if __name__ == "__main__":

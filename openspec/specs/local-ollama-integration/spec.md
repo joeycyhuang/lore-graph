@@ -1,5 +1,3 @@
-## ADDED Requirements
-
 ### Requirement: System can extract using local Ollama models
 The system SHALL support character and relationship extraction using locally-hosted Ollama models without requiring cloud API access. The system MUST use LangExtract's native Ollama integration with direct model_id and model_url parameters.
 

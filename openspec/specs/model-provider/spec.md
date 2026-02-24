@@ -1,5 +1,3 @@
-## ADDED Requirements
-
 ### Requirement: Provider selection via CLI
 The CLI SHALL accept a `--provider` flag with allowed values `ollama`, `ollama-cloud`, and `gemini`. When omitted, the provider SHALL default to `ollama`.
 
